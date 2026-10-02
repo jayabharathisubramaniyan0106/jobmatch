@@ -1,0 +1,170 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JobMatch</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+:root{--bg:#f4f6fb;--card:#fff;--ink:#1c2333;--mute:#6b7488;--pri:#4f46e5;--ok:#16a34a;--bad:#dc2626;--line:#e3e7f0}
+@media(prefers-color-scheme:dark){:root{--bg:#10131c;--card:#181c28;--ink:#e8ebf4;--mute:#98a1b6;--line:#2a3042}}
+*{box-sizing:border-box}body{margin:0;font:15px system-ui,Segoe UI,sans-serif;background:var(--bg);color:var(--ink)}
+.nav{display:flex;justify-content:space-between;align-items:center;padding:12px 20px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+.logo{font-weight:800;color:var(--pri);font-size:20px}.layout{display:flex;min-height:calc(100vh - 54px)}
+.side{width:210px;padding:14px;background:var(--card);border-right:1px solid var(--line);display:flex;flex-direction:column;gap:4px}
+.side button{text-align:left;background:none;border:0;padding:10px 12px;border-radius:8px;color:var(--ink);cursor:pointer;font-size:14px}
+.side button.on,.side button:hover{background:var(--pri);color:#fff}.main{flex:1;padding:22px;max-width:1100px}
+@media(max-width:760px){.layout{flex-direction:column}.side{width:100%;flex-direction:row;overflow-x:auto;border-right:0}.side button{white-space:nowrap}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.stat b{font-size:28px;display:block;color:var(--pri)}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.between{justify-content:space-between}
+input,select,textarea{padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit;width:100%}
+.f{display:flex;flex-direction:column;gap:4px;margin-bottom:10px;flex:1;min-width:150px}.f label{font-size:12px;color:var(--mute);font-weight:600}
+.btn{padding:8px 14px;border-radius:8px;border:1px solid var(--pri);background:var(--pri);color:#fff;cursor:pointer;font-weight:600}
+.btn.o{background:none;color:var(--pri)}.btn.d{background:var(--bad);border-color:var(--bad)}.btn:disabled{opacity:.5}
+.badge{padding:2px 9px;border-radius:99px;font-size:12px;background:var(--bg);border:1px solid var(--line)}
+.match{background:var(--ok);color:#fff;border:0;font-weight:700}.mute{color:var(--mute);font-size:13px}.err{color:var(--bad)}.okmsg{color:var(--ok)}
+.hero{text-align:center;padding:50px 10px}.hero h1{font-size:38px;margin:0 0 10px}.auth{max-width:560px;margin:0 auto}
+.chip{cursor:pointer;user-select:none}.chip.on{background:var(--pri);color:#fff;border-color:var(--pri)}.empty{text-align:center;color:var(--mute);padding:40px}
+</style></head><body><div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useCallback}=React;
+const API="http://localhost:8000";
+const ROLES=["Python Developer","Java Developer","Web Developer","Frontend Developer","Backend Developer","Full Stack Developer","Data Analyst","AI/ML Engineer","DevOps Engineer","Mobile Developer","UI/UX Designer","QA Engineer"];
+const EXP=["Fresher","1-2 years","3-5 years","5+ years"],TYPES=["Full-time","Part-time","Contract"],MODES=["On-site","Remote","Hybrid"];
+async function api(path,method="GET",body){
+  const t=localStorage.getItem("token");
+  const r=await fetch(API+path,{method,headers:{"Content-Type":"application/json",...(t?{Authorization:"Bearer "+t}:{})},body:body?JSON.stringify(body):undefined});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(Array.isArray(d.detail)?d.detail.map(e=>e.loc.slice(-1)+": "+e.msg).join("; "):d.detail||"Request failed");
+  return d;
+}
+function useLoad(fn,deps){
+  const [s,set]=useState({data:null,loading:true,err:""});
+  const load=useCallback(()=>{set(x=>({...x,loading:true}));fn().then(data=>set({data,loading:false,err:""})).catch(e=>set({data:null,loading:false,err:e.message}))},deps);
+  useEffect(load,[load]);return {...s,reload:load};
+}
+const csv=s=>s.split(",").map(x=>x.trim()).filter(Boolean);
+const Field=({l,children})=><div className="f"><label>{l}</label>{children}</div>;
+const State=({s,empty,children})=>s.loading?<div className="empty">Loading…</div>:s.err?<div className="empty err">{s.err}</div>:(!s.data||s.data.length===0)&&empty?<div className="empty">{empty}</div>:children;
+const Chips=({options,value,onChange})=><div className="row">{options.map(o=><span key={o} className={"badge chip "+(value.includes(o)?"on":"")} onClick={()=>onChange(value.includes(o)?value.filter(x=>x!==o):[...value,o])}>{o}</span>)}</div>;
+
+function Auth({onAuth}){
+  const [mode,setMode]=useState("login"),[role,setRole]=useState("seeker"),[f,setF]=useState({experience:"Fresher",preference:"Both",expected_pay:0}),[roles,setRoles]=useState([]),[skills,setSkills]=useState(""),[err,setErr]=useState(""),[busy,setBusy]=useState(false);
+  const set=k=>e=>setF({...f,[k]:e.target.value});
+  const submit=async e=>{e.preventDefault();setErr("");setBusy(true);
+    try{const d=mode==="login"?await api("/auth/login","POST",{email:f.email,password:f.password}):await api("/auth/register","POST",{...f,role,roles,skills:csv(skills),expected_pay:+f.expected_pay||0});
+      localStorage.setItem("token",d.token);onAuth(d.user);}catch(x){setErr(x.message)}setBusy(false)};
+  return <div><div className="nav"><span className="logo">JobMatch</span></div>
+  <div className="hero"><h1>Only the jobs & internships that fit you</h1><p className="mute">Pick your roles once. We show matching opportunities with a transparent rule-based match score.</p></div>
+  <form className="card auth" onSubmit={submit}>
+    <div className="row"><button type="button" className={"btn "+(mode==="login"?"":"o")} onClick={()=>setMode("login")}>Login</button><button type="button" className={"btn "+(mode==="register"?"":"o")} onClick={()=>setMode("register")}>Register</button></div><br/>
+    {mode==="register"&&<div className="row"><button type="button" className={"btn "+(role==="seeker"?"":"o")} onClick={()=>setRole("seeker")}>I'm a job seeker</button><button type="button" className={"btn "+(role==="recruiter"?"":"o")} onClick={()=>setRole("recruiter")}>I'm a recruiter</button></div>}<br/>
+    {mode==="register"&&<Field l="Name"><input required onChange={set("name")}/></Field>}
+    <Field l="Email"><input type="email" required onChange={set("email")}/></Field>
+    <Field l="Password (min 6)"><input type="password" required onChange={set("password")}/></Field>
+    {mode==="register"&&<Field l="Phone"><input onChange={set("phone")}/></Field>}
+    {mode==="register"&&role==="recruiter"&&<Field l="Company name"><input required onChange={set("company_name")}/></Field>}
+    {mode==="register"&&role==="seeker"&&<>
+      <Field l="Interested roles (select one or more)"><Chips options={ROLES} value={roles} onChange={setRoles}/></Field>
+      <Field l="Skills (comma separated)"><input placeholder="Python, FastAPI" value={skills} onChange={e=>setSkills(e.target.value)}/></Field>
+      <div className="row"><Field l="Experience"><select onChange={set("experience")}>{EXP.map(x=><option key={x}>{x}</option>)}</select></Field>
+      <Field l="Preference"><select value={f.preference} onChange={set("preference")}><option>Both</option><option>Job</option><option>Internship</option></select></Field></div>
+      <div className="row"><Field l="Preferred location"><input onChange={set("location")}/></Field><Field l="Expected salary/stipend (₹/month)"><input type="number" onChange={set("expected_pay")}/></Field></div></>}
+    {err&&<p className="err">{err}</p>}<button className="btn" disabled={busy}>{busy?"Please wait…":mode==="login"?"Login":"Create account"}</button>
+  </form></div>;
+}
+
+function OppCard({o,onChange,seeker}){
+  const [msg,setMsg]=useState("");
+  const pick=e=>{const file=e.target.files[0];e.target.value="";if(!file)return;
+    if(file.size>2*1024*1024){setMsg("Resume must be under 2 MB");return}
+    const rd=new FileReader();rd.onload=async()=>{try{await api("/applications","POST",{opportunity_id:o.id,resume_name:file.name,resume_data:rd.result.split(",")[1]});setMsg("Applied!");onChange()}catch(x){setMsg(x.message)}};rd.readAsDataURL(file)};
+  const save=async()=>{o.saved?await api("/saved/"+o.id,"DELETE"):await api("/saved","POST",{opportunity_id:o.id});onChange()};
+  return <div className="card"><div className="row between"><b>{o.title}</b>{o.match!=null&&<span className="badge match">{o.match}% Match</span>}</div>
+    <div className="mute">{o.company} · {o.role}</div>
+    <div className="row" style={{margin:"8px 0"}}><span className="badge">{o.kind}</span><span className="badge">{o.job_type}</span><span className="badge">{o.work_mode}</span><span className="badge">📍 {o.location||"Anywhere"}</span><span className="badge">₹{o.pay}/mo</span><span className="badge">{o.experience}</span></div>
+    <div className="row">{o.skills.map(s=><span key={s} className="badge">{s}</span>)}</div>
+    <p className="mute">{o.description}</p><div className="mute">Posted {new Date(o.created_at).toLocaleDateString()}</div>
+    {seeker&&<div className="row" style={{marginTop:10}}><button className="btn" disabled={o.applied} onClick={()=>document.getElementById("rf"+o.kind+o.id).click()}>{o.applied?"Applied":"Apply (upload resume)"}</button><input id={"rf"+o.kind+o.id} type="file" accept=".pdf,.doc,.docx" hidden onChange={pick}/><button className="btn o" onClick={save}>{o.saved?"Unsave":"Save"}</button><span className={msg==="Applied!"?"okmsg":"err"}>{msg}</span></div>}</div>;
+}
+
+function Browse({kind,mode}){
+  const [fl,setFl]=useState({q:"",location:"",job_type:"",work_mode:"",experience:"",skill:"",min_pay:""});
+  const set=k=>e=>setFl({...fl,[k]:e.target.value});
+  const base=(mode==="rec"?"/recommendations/":"/")+(kind==="Job"?"jobs":"internships");
+  const qs=new URLSearchParams(Object.entries(fl).filter(([,v])=>v)).toString();
+  const s=useLoad(()=>api(base+"?"+qs),[base,qs]);
+  return <div><h2>{mode==="rec"?`Recommended ${kind}s`:`All ${kind}s`}</h2>
+    <div className="card row"><Field l="Search role/title"><input value={fl.q} onChange={set("q")}/></Field><Field l="Location"><input onChange={set("location")}/></Field>
+    <Field l="Type"><select onChange={set("job_type")}><option value="">Any</option>{TYPES.map(x=><option key={x}>{x}</option>)}</select></Field>
+    <Field l="Mode"><select onChange={set("work_mode")}><option value="">Any</option>{MODES.map(x=><option key={x}>{x}</option>)}</select></Field>
+    <Field l="Experience"><select onChange={set("experience")}><option value="">Any</option>{EXP.map(x=><option key={x}>{x}</option>)}</select></Field>
+    <Field l="Skill"><input onChange={set("skill")}/></Field><Field l="Min pay"><input type="number" onChange={set("min_pay")}/></Field></div>
+    <State s={s} empty={mode==="rec"?"No matching opportunities yet. Add more interested roles in your profile.":"Nothing found."}><div className="grid">{s.data&&s.data.map(o=><OppCard key={o.id} o={o} seeker onChange={s.reload}/>)}</div></State></div>;
+}
+function Saved(){const s=useLoad(()=>api("/saved"),[]);return <div><h2>Saved</h2><State s={s} empty="Nothing saved yet."><div className="grid">{s.data&&s.data.map(o=><OppCard key={o.id} o={o} seeker onChange={s.reload}/>)}</div></State></div>}
+function Notifs(){const s=useLoad(()=>api("/notifications"),[]);return <div><h2>Notifications</h2><State s={s} empty="No notifications.">{s.data&&s.data.map(n=><div className="card" key={n.id}>{n.message}<div className="mute">{new Date(n.created_at).toLocaleString()}</div></div>)}</State></div>}
+function SeekerHome({user,go}){const s=useLoad(()=>api("/recommendations"),[]);return <div><h2>Welcome, {user.name} 👋</h2><p className="mute">Interested in: {user.roles.join(", ")}</p>
+  <h3>Top matches</h3><State s={s} empty="No matches yet.">{s.data&&<div className="grid">{s.data.slice(0,4).map(o=><OppCard key={o.kind+o.id} o={o} seeker onChange={s.reload}/>)}</div>}</State></div>}
+
+function Applications({recruiter}){
+  const s=useLoad(()=>api("/applications"),[]);
+  const upd=async(id,status)=>{await api(`/applications/${id}/status`,"PUT",{status});s.reload()};
+  const dl=async a=>{try{const r=await fetch(`${API}/applications/${a.id}/resume`,{headers:{Authorization:"Bearer "+localStorage.getItem("token")}});if(!r.ok)throw 0;const l=document.createElement("a");l.href=URL.createObjectURL(await r.blob());l.download=a.resume;l.click()}catch{alert("Resume file not available")}};
+  return <div><h2>Applications</h2><State s={s} empty="No applications yet."><div>{s.data&&s.data.map(a=><div className="card row between" key={a.id}><div><b>{a.title}</b> <span className="badge">{a.kind}</span>
+    <div className="mute">{recruiter?`${a.applicant} (${a.applicant_email}) · ${a.match}% match`:a.company} · {new Date(a.applied_at).toLocaleDateString()}</div></div>{recruiter&&<button className="btn o" onClick={()=>dl(a)}>📄 {a.resume}</button>}
+    {recruiter?<select style={{width:160}} value={a.status} onChange={e=>upd(a.id,e.target.value)}>{["Applied","Under Review","Shortlisted","Rejected","Selected"].map(x=><option key={x}>{x}</option>)}</select>:<span className="badge">{a.status}</span>}</div>)}</div></State></div>;
+}
+function Profile({user,setUser,recruiter}){
+  const [f,setF]=useState({...user,roles:user.roles,skills:user.skills.join(", ")}),[msg,setMsg]=useState("");
+  const set=k=>e=>setF({...f,[k]:e.target.value});
+  const save=async e=>{e.preventDefault();try{const body=recruiter?{name:f.name,phone:f.phone,company_name:f.company_name,company_desc:f.company_desc,website:f.website}:{name:f.name,phone:f.phone,roles:f.roles,skills:csv(f.skills),experience:f.experience,location:f.location,expected_pay:+f.expected_pay||0,preference:f.preference};
+    setUser(await api("/profile","PUT",body));setMsg("Saved ✔")}catch(x){setMsg(x.message)}};
+  return <form className="card" onSubmit={save}><h2>{recruiter?"Company profile":"Profile"}</h2>
+    <Field l="Name"><input value={f.name} onChange={set("name")}/></Field><Field l="Phone"><input value={f.phone} onChange={set("phone")}/></Field>
+    {recruiter?<><Field l="Company name"><input value={f.company_name} onChange={set("company_name")}/></Field><Field l="Website"><input value={f.website} onChange={set("website")}/></Field><Field l="About"><textarea rows="3" value={f.company_desc} onChange={set("company_desc")}/></Field></>
+    :<><Field l="Interested roles"><Chips options={ROLES} value={f.roles} onChange={r=>setF({...f,roles:r})}/></Field><Field l="Skills"><input value={f.skills} onChange={set("skills")}/></Field>
+    <div className="row"><Field l="Experience"><select value={f.experience} onChange={set("experience")}>{EXP.map(x=><option key={x}>{x}</option>)}</select></Field><Field l="Preference"><select value={f.preference} onChange={set("preference")}><option>Both</option><option>Job</option><option>Internship</option></select></Field></div>
+    <div className="row"><Field l="Location"><input value={f.location} onChange={set("location")}/></Field><Field l="Expected pay (₹/month)"><input type="number" value={f.expected_pay} onChange={set("expected_pay")}/></Field></div></>}
+    <button className="btn">Save</button> <span className="okmsg">{msg}</span></form>;
+}
+
+function PostForm({kind,initial,done}){
+  const [f,setF]=useState(initial?{...initial,skills:initial.skills.join(", ")}:{title:"",role:ROLES[0],skills:"",experience:"Fresher",location:"",pay:0,job_type:kind==="Internship"?"Part-time":"Full-time",work_mode:"On-site",description:""}),[msg,setMsg]=useState("");
+  const set=k=>e=>setF({...f,[k]:e.target.value});
+  const path=kind==="Job"?"/jobs":"/internships";
+  const submit=async e=>{e.preventDefault();try{const body={...f,skills:csv(f.skills),pay:+f.pay||0};initial?await api(`${path}/${initial.id}`,"PUT",body):await api(path,"POST",body);setMsg("Saved ✔");done&&done()}catch(x){setMsg(x.message)}};
+  return <form className="card" onSubmit={submit}><h2>{initial?"Edit":"Create"} {kind}</h2>
+    <Field l="Title"><input required value={f.title} onChange={set("title")}/></Field>
+    <Field l="Required role"><select value={f.role} onChange={set("role")}>{ROLES.map(x=><option key={x}>{x}</option>)}</select></Field>
+    <Field l="Required skills (comma separated)"><input value={f.skills} onChange={set("skills")}/></Field>
+    <div className="row"><Field l="Experience"><select value={f.experience} onChange={set("experience")}>{EXP.map(x=><option key={x}>{x}</option>)}</select></Field><Field l="Location"><input value={f.location} onChange={set("location")}/></Field><Field l="Salary/Stipend (₹/month)"><input type="number" value={f.pay} onChange={set("pay")}/></Field></div>
+    <div className="row"><Field l="Type"><select value={f.job_type} onChange={set("job_type")}>{TYPES.map(x=><option key={x}>{x}</option>)}</select></Field><Field l="Mode"><select value={f.work_mode} onChange={set("work_mode")}>{MODES.map(x=><option key={x}>{x}</option>)}</select></Field></div>
+    <Field l="Description"><textarea rows="3" value={f.description} onChange={set("description")}/></Field><button className="btn">{initial?"Update":"Publish"}</button> <span className={msg.includes("✔")?"okmsg":"err"}>{msg}</span></form>;
+}
+function MyPosts(){
+  const j=useLoad(()=>api("/jobs/mine"),[]),i=useLoad(()=>api("/internships/mine"),[]),[edit,setEdit]=useState(null);
+  const all=[...(j.data||[]),...(i.data||[])];const reload=()=>{j.reload();i.reload();setEdit(null)};
+  const del=async o=>{if(confirm("Delete this post?")){await api((o.kind==="Job"?"/jobs/":"/internships/")+o.id,"DELETE");reload()}};
+  const tog=async o=>{await api(`/opportunities/${o.id}/toggle`,"PUT");reload()};
+  if(edit)return <div><button className="btn o" onClick={()=>setEdit(null)}>← Back</button><PostForm kind={edit.kind} initial={edit} done={reload}/></div>;
+  return <div><h2>My posts</h2><State s={{loading:j.loading||i.loading,err:j.err||i.err,data:all}} empty="You haven't posted anything yet.">{all.map(o=><div className="card row between" key={o.kind+o.id}><div><b>{o.title}</b> <span className="badge">{o.kind}</span> <span className="badge">{o.role}</span> {!o.active&&<span className="badge">Inactive</span>}</div>
+    <div className="row"><button className="btn o" onClick={()=>setEdit(o)}>Edit</button><button className="btn o" onClick={()=>tog(o)}>{o.active?"Deactivate":"Activate"}</button><button className="btn d" onClick={()=>del(o)}>Delete</button></div></div>)}</State></div>;
+}
+function Matched(){const s=useLoad(()=>api("/matched-candidates"),[]);return <div><h2>Matched candidates</h2><State s={s} empty="No candidates match your posts yet."><div className="grid">{s.data&&s.data.map((c,k)=><div className="card" key={k}><div className="row between"><b>{c.name}</b><span className="badge match">{c.match}% Match</span></div><div className="mute">{c.email}</div><div>For: {c.post} <span className="badge">{c.kind}</span></div><div className="mute">{c.experience} · {c.location||"—"} · {c.skills}</div></div>)}</div></State></div>}
+function RecruiterHome({user}){const s=useLoad(()=>api("/recruiter/stats"),[]);const d=s.data||{};return <div><h2>Welcome, {user.company_name||user.name}</h2><State s={s}><div className="stats">{[["Total posts",d.total_posts],["Active posts",d.active_posts],["Applications",d.applications],["Matched candidates",d.matched_candidates]].map(([l,v])=><div className="card stat" key={l}><b>{v}</b>{l}</div>)}</div></State></div>}
+
+function App(){
+  const [user,setUser]=useState(null),[ready,setReady]=useState(false),[page,setPage]=useState("home");
+  useEffect(()=>{localStorage.getItem("token")?api("/auth/me").then(setUser).catch(()=>localStorage.removeItem("token")).finally(()=>setReady(true)):setReady(true)},[]);
+  if(!ready)return <div className="empty">Loading…</div>;
+  if(!user)return <Auth onAuth={u=>{setUser(u);setPage("home")}}/>;
+  const rec=user.role==="recruiter";
+  const menu=rec?[["home","Dashboard"],["job","Create Job"],["internship","Create Internship"],["posts","My Posts"],["apps","Applications"],["matched","Matched Candidates"],["profile","Company Profile"],["notifs","Notifications"]]
+    :[["home","Dashboard"],["recJob","Recommended Jobs"],["recInt","Recommended Internships"],["allJob","Browse Jobs"],["allInt","Browse Internships"],["saved","Saved"],["apps","Applications"],["profile","Profile"],["notifs","Notifications"]];
+  const view={home:rec?<RecruiterHome user={user}/>:<SeekerHome user={user}/>,job:<PostForm kind="Job"/>,internship:<PostForm kind="Internship"/>,posts:<MyPosts/>,apps:<Applications recruiter={rec}/>,matched:<Matched/>,
+    profile:<Profile user={user} setUser={setUser} recruiter={rec}/>,notifs:<Notifs/>,recJob:<Browse kind="Job" mode="rec"/>,recInt:<Browse kind="Internship" mode="rec"/>,allJob:<Browse kind="Job" mode="all"/>,allInt:<Browse kind="Internship" mode="all"/>,saved:<Saved/>}[page];
+  return <div><div className="nav"><span className="logo">JobMatch</span><div className="row"><span className="mute">{user.name} ({rec?"Recruiter":"Job seeker"})</span><button className="btn o" onClick={()=>{localStorage.removeItem("token");setUser(null)}}>Logout</button></div></div>
+    <div className="layout"><div className="side">{menu.map(([k,l])=><button key={k} className={page===k?"on":""} onClick={()=>setPage(k)}>{l}</button>)}</div><div className="main" key={page}>{view}</div></div></div>;
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script></body></html>
