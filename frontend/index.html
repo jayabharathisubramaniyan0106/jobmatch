@@ -27,7 +27,7 @@ input,select,textarea{padding:9px 10px;border:1px solid var(--line);border-radiu
 </style></head><body><div id="root"></div>
 <script type="text/babel">
 const {useState,useEffect,useCallback}=React;
-const API="http://localhost:8000";
+const API="https://jobmatch-u4ar.onrender.com";
 const ROLES=["Python Developer","Java Developer","Web Developer","Frontend Developer","Backend Developer","Full Stack Developer","Data Analyst","AI/ML Engineer","DevOps Engineer","Mobile Developer","UI/UX Designer","QA Engineer"];
 const EXP=["Fresher","1-2 years","3-5 years","5+ years"],TYPES=["Full-time","Part-time","Contract"],MODES=["On-site","Remote","Hybrid"];
 async function api(path,method="GET",body){
